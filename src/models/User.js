@@ -7,6 +7,7 @@ const userSchema = new mongoose.Schema({
   passwordHash:String, emailVerified:{type:Boolean,default:false},
   roles:{type:[String], default:['user']}, status:{type:String, enum:['active','blocked'], default:'active'},
   loanLimit:{ amount:{type:Number,default:0}, setBy:{type:mongoose.Schema.Types.ObjectId,ref:'User'}, setAt:Date },
+  walletBalance:{type:Number,default:0},
   kyc:{ docs:[kycDocSchema], reviewedBy:{type:mongoose.Schema.Types.ObjectId,ref:'User'}, reviewedAt:Date },
   fcmTokens:{ type:[String], default:[] }
 }, { timestamps:true });

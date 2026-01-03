@@ -9,7 +9,7 @@ const router = Router();
 router.post('/', requireAuth, async (req,res,next)=>{
   try{
     const payload = await Joi.object({
-      type:Joi.string().valid('ELECTRICITY','WATER','MOBILE','DTH','RENT','OTHER').default('OTHER'),
+      type:Joi.string().valid('ELECTRICITY','WATER','MOBILE','DTH','GAS','RENT','OTHER').default('OTHER'),
       provider:Joi.string().allow('',null),
       accountRef:Joi.string().allow('',null),
       amount:Joi.number().min(0).required(),
@@ -18,6 +18,34 @@ router.post('/', requireAuth, async (req,res,next)=>{
     }).validateAsync(req.body);
     const row = await Bill.create({ ...payload, userId:req.user.uid });
     ok(res, row, 'Bill added');
+  }catch(e){ next(e) }
+});
+
+router.post('/fetch', requireAuth, async (req,res,next)=>{
+  try{
+    const { type, provider, accountRef } = await Joi.object({
+      type:Joi.string().valid('ELECTRICITY','WATER','MOBILE','DTH','GAS').required(),
+      provider:Joi.string().required(),
+      accountRef:Joi.string().required()
+    }).validateAsync(req.body);
+    const { bbpsFetchBill } = await import('../services/bbps.js');
+    const billData = await bbpsFetchBill({ provider, accountRef, billType: type });
+    ok(res, billData, 'Bill fetched');
+  }catch(e){ next(e) }
+});
+
+router.post('/pay', requireAuth, async (req,res,next)=>{
+  try{
+    const { billId, amount, bbpsId } = await Joi.object({
+      billId:Joi.string().required(),
+      amount:Joi.number().min(0).required(),
+      bbpsId:Joi.string().optional()
+    }).validateAsync(req.body);
+    const bill = await Bill.findOne({ _id:billId, userId:req.user.uid });
+    if (!bill) return fail(res,'NOT_FOUND','Bill not found',404);
+    const { bbpsPay } = await import('../services/bbps.js');
+    const payResult = await bbpsPay({ provider:bill.provider, accountRef:bill.accountRef, billType:bill.type, amount, billNumber:bill.accountRef, bbpsId });
+    ok(res, { bill, payment: payResult }, 'Bill payment initiated');
   }catch(e){ next(e) }
 });
 

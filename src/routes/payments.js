@@ -12,12 +12,10 @@ import { getRazorpay } from '../services/razorpay.js';
 
 const router = express.Router();
 
-
-
-// 1) Create Razorpay Order (loan repayment / bill payment / generic)
+// 1) Create Razorpay Order (loan repayment / bill payment / P2P payment / generic)
 router.post('/razorpay/order', requireAuth, async (req, res, next) => {
   try {
-    const { amount, currency = 'INR', loanId = null, billId = null, installmentNo = null, isFullPayment = false, notes = {} } =
+    const { amount, currency = 'INR', loanId = null, billId = null, installmentNo = null, isFullPayment = false, notes = {}, payeeVPA = null, payeeName = null, payeeNote = null } =
       await Joi.object({
         amount: Joi.number().min(1).required(),
         currency: Joi.string().default('INR'),
@@ -25,7 +23,10 @@ router.post('/razorpay/order', requireAuth, async (req, res, next) => {
         billId: Joi.string().allow(null, '').default(null),
         installmentNo: Joi.number().integer().allow(null).default(null),
         isFullPayment: Joi.boolean().default(false),
-        notes: Joi.object().default({})
+        notes: Joi.object().default({}),
+        payeeVPA: Joi.string().allow(null, '').default(null),
+        payeeName: Joi.string().allow(null, '').default(null),
+        payeeNote: Joi.string().allow(null, '').default(null)
       }).validateAsync(req.body);
 
     const rz = getRazorpay();
@@ -37,7 +38,7 @@ router.post('/razorpay/order', requireAuth, async (req, res, next) => {
       notes
     });
 
-    const type = isFullPayment ? 'FULL_REPAYMENT' : (loanId ? 'REPAYMENT' : (billId ? 'BILL' : 'OTHER'));
+    const type = isFullPayment ? 'FULL_REPAYMENT' : (loanId ? 'REPAYMENT' : (billId ? 'BILL' : (payeeVPA ? 'P2P' : 'OTHER')));
     const payment = await Payment.create({
       userId: req.user.uid,
       loanId,
@@ -48,7 +49,8 @@ router.post('/razorpay/order', requireAuth, async (req, res, next) => {
       method: 'RAZORPAY',
       reference: order.id,
       status: 'PENDING',
-      gateway: { provider: 'razorpay', orderId: order.id }
+      gateway: { provider: 'razorpay', orderId: order.id },
+      payeeDetails: payeeVPA ? { vpa: payeeVPA, name: payeeName, note: payeeNote } : undefined
     });
 
     ok(res, { order, paymentId: payment._id, key_id: process.env.RAZORPAY_KEY_ID }, 'Order created');

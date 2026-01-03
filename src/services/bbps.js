@@ -1,10 +1,9 @@
-export async function bbpsFetchBill({ provider, accountRef, mock=true }) {
-  if (mock) {
-    return { amount: 199, customerName: 'Test User', dueDate: new Date(Date.now()+7*864e5) };
-  }
-  // TODO: call Xpresso BBPS sandbox with your keys
+import { bbpsFetchBill as clubBbpsFetchBill, bbpsPay as clubBbpsPay } from './clubapi.js';
+
+export async function bbpsFetchBill({ provider, accountRef, billType }) {
+  return await clubBbpsFetchBill({ provider, accountRef, billType });
 }
 
-export async function bbpsPay({ provider, accountRef, amount, mock=true }) {
-  if (mock) return { status: 'SUCCESS', txnId: 'BBPS'+Date.now() };
+export async function bbpsPay({ provider, accountRef, billType, amount, billNumber }) {
+  return await clubBbpsPay({ provider, accountRef, billType, amount, billNumber });
 }

@@ -12,6 +12,7 @@ import AdminNotificationHistory from '../models/AdminNotificationHistory.js';
 import Settings from '../models/Settings.js';
 import { ok, fail } from '../utils/response.js';
 import { sendFCMToToken } from '../services/fcm.js';  // ✅ New import
+import { quickSort } from '../utils/dsa.js';
 
 const router = Router();
 
@@ -37,6 +38,90 @@ router.get('/settings', async (req, res, next) => {
     }
     ok(res, settings);
   } catch (e) { next(e); }
+});
+
+/* ---------------- DYNAMIC MARQUEE (No auth required for dashboard display) ---------------- */
+router.get('/marquee', async (req, res, next) => {
+  try {
+    const now = new Date();
+    const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    // Fetch recent activities with DSA optimization
+    const [recentLoans, recentPayments, recentNotifications, recentUsers, overdueLoans, recentSettlements] = await Promise.all([
+      Loan.find({ createdAt: { $gte: last24Hours } }).populate('userId', 'name').limit(5),
+      Payment.find({ createdAt: { $gte: last24Hours } }).populate('userId', 'name').limit(5),
+      Notification.find({ createdAt: { $gte: last24Hours } }).populate('userId', 'name').limit(5),
+      User.find({ createdAt: { $gte: last24Hours } }).select('name').limit(5),
+      Loan.find({
+        status: 'disbursed',
+        nextDueDate: { $lt: now, $gte: last7Days }
+      }).populate('userId', 'name').limit(5),
+      Settlement.find({ createdAt: { $gte: last24Hours } }).populate('loanId').populate('userId', 'name').limit(5)
+    ]);
+
+    // Combine all activities with priority levels
+    const activities = [
+      ...recentLoans.map(loan => ({
+        type: 'loan',
+        priority: 1, // High priority
+        message: `🚨 New loan application from ${loan.userId?.name || 'Unknown User'} for ₹${loan.amount}`,
+        createdAt: loan.createdAt
+      })),
+      ...recentPayments.map(payment => ({
+        type: 'payment',
+        priority: 2, // Medium priority
+        message: `💰 Payment received from ${payment.userId?.name || 'Unknown User'} for ₹${payment.amount}`,
+        createdAt: payment.createdAt
+      })),
+      ...recentNotifications.map(notification => ({
+        type: 'notification',
+        priority: 3, // Medium priority
+        message: `📢 ${notification.title}`,
+        createdAt: notification.createdAt
+      })),
+      ...recentUsers.map(user => ({
+        type: 'user',
+        priority: 4, // Low priority
+        message: `👤 New user registered: ${user.name}`,
+        createdAt: user.createdAt
+      })),
+      ...overdueLoans.map(loan => ({
+        type: 'overdue',
+        priority: 1, // High priority
+        message: `⚠️ Overdue loan alert: ${loan.userId?.name || 'Unknown User'} - ₹${loan.amount}`,
+        createdAt: now // Use current time for overdue alerts
+      })),
+      ...recentSettlements.map(settlement => ({
+        type: 'settlement',
+        priority: 2, // Medium priority
+        message: `✅ Loan settlement completed for ${settlement.userId?.name || 'Unknown User'}`,
+        createdAt: settlement.createdAt
+      }))
+    ];
+
+    // Sort activities by priority first, then by creation date (most recent first) using quickSort
+    const sortedActivities = quickSort(activities, (a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority; // Lower number = higher priority
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    // Extract messages for marquee (limit to 15 for more alerts)
+    const messages = sortedActivities.slice(0, 15).map(activity => activity.message);
+
+    // If no recent activities, provide default messages
+    if (messages.length === 0) {
+      messages.push(
+        'Welcome to Khatu Pay Admin Dashboard',
+        'No recent activities to display',
+        'Check back later for updates'
+      );
+    }
+
+    ok(res, messages);
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.put('/settings', async (req, res, next) => {
@@ -101,6 +186,16 @@ router.put('/settings', async (req, res, next) => {
 
 router.use(requireAuth, requireRole(['admin']));
 
+// Stats route
+router.get('/stats', async (req, res, next) => {
+  try {
+    const pending = await Loan.countDocuments({ status: 'pending' });
+    const approved = await Loan.countDocuments({ status: 'approved' });
+    const disbursed = await Loan.countDocuments({ status: 'disbursed' });
+    ok(res, { pending, approved, disbursed });
+  } catch (e) { next(e); }
+});
+
 router.put('/change-password', async (req, res, next) => {
   try {
     const { oldPassword, newPassword } = await Joi.object({
@@ -138,6 +233,46 @@ router.get('/profile', async (req, res, next) => {
     const admin = await User.findById(req.user.uid).select('name email mobile roles');
     if (!admin) return fail(res, 'NOT_FOUND', 'Admin not found', 404);
     ok(res, admin);
+  } catch (e) { next(e); }
+});
+
+router.put('/profile', async (req, res, next) => {
+  try {
+    const { name, email, mobile } = await Joi.object({
+      name: Joi.string().trim().min(2).max(50).required(),
+      email: Joi.string().email().lowercase().required(),
+      mobile: Joi.string().pattern(/^[6-9]\d{9}$/).optional().allow(''),
+    }).unknown(true).validateAsync(req.body);
+
+    const adminId = req.user.uid;
+
+    // Check if email is already taken by another user
+    const existingEmailUser = await User.findOne({ email, _id: { $ne: adminId } });
+    if (existingEmailUser) return fail(res, 'EMAIL_EXISTS', 'Email is already in use', 400);
+
+    // Check if mobile is already taken by another user (if provided)
+    if (mobile) {
+      const existingMobileUser = await User.findOne({ mobile, _id: { $ne: adminId } });
+      if (existingMobileUser) return fail(res, 'MOBILE_EXISTS', 'Mobile number is already in use', 400);
+    }
+
+    const updatedAdmin = await User.findByIdAndUpdate(
+      adminId,
+      { name, email, mobile: mobile || null },
+      { new: true, select: 'name email mobile roles' }
+    );
+
+    if (!updatedAdmin) return fail(res, 'NOT_FOUND', 'Admin not found', 404);
+
+    await AuditLog.create({
+      actorId: adminId,
+      action: 'UPDATE_PROFILE',
+      entityType: 'Admin',
+      entityId: adminId,
+      meta: { name, email, mobile },
+    });
+
+    ok(res, updatedAdmin, 'Profile updated successfully');
   } catch (e) { next(e); }
 });
 
@@ -333,6 +468,88 @@ router.get('/notification-history', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ---------------- DYNAMIC MARQUEE ---------------- */
+router.get('/marquee', async (req, res, next) => {
+  try {
+    const now = new Date();
+    const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
+    // Fetch recent activities with DSA optimization
+    const [recentLoans, recentPayments, recentNotifications, recentUsers, overdueLoans, recentSettlements] = await Promise.all([
+      Loan.find({ createdAt: { $gte: last24Hours } }).populate('userId', 'name').limit(5),
+      Payment.find({ createdAt: { $gte: last24Hours } }).populate('userId', 'name').limit(5),
+      Notification.find({ createdAt: { $gte: last24Hours } }).populate('userId', 'name').limit(5),
+      User.find({ createdAt: { $gte: last24Hours } }).select('name').limit(5),
+      Loan.find({
+        status: 'disbursed',
+        nextDueDate: { $lt: now, $gte: last7Days }
+      }).populate('userId', 'name').limit(5),
+      Settlement.find({ createdAt: { $gte: last24Hours } }).populate('loanId').populate('userId', 'name').limit(5)
+    ]);
+
+    // Combine all activities with priority levels
+    const activities = [
+      ...recentLoans.map(loan => ({
+        type: 'loan',
+        priority: 1, // High priority
+        message: `🚨 New loan application from ${loan.userId?.name || 'Unknown User'} for ₹${loan.amount}`,
+        createdAt: loan.createdAt
+      })),
+      ...recentPayments.map(payment => ({
+        type: 'payment',
+        priority: 2, // Medium priority
+        message: `💰 Payment received from ${payment.userId?.name || 'Unknown User'} for ₹${payment.amount}`,
+        createdAt: payment.createdAt
+      })),
+      ...recentNotifications.map(notification => ({
+        type: 'notification',
+        priority: 3, // Medium priority
+        message: `📢 ${notification.title}`,
+        createdAt: notification.createdAt
+      })),
+      ...recentUsers.map(user => ({
+        type: 'user',
+        priority: 4, // Low priority
+        message: `👤 New user registered: ${user.name}`,
+        createdAt: user.createdAt
+      })),
+      ...overdueLoans.map(loan => ({
+        type: 'overdue',
+        priority: 1, // High priority
+        message: `⚠️ Overdue loan alert: ${loan.userId?.name || 'Unknown User'} - ₹${loan.amount}`,
+        createdAt: now // Use current time for overdue alerts
+      })),
+      ...recentSettlements.map(settlement => ({
+        type: 'settlement',
+        priority: 2, // Medium priority
+        message: `✅ Loan settlement completed for ${settlement.userId?.name || 'Unknown User'}`,
+        createdAt: settlement.createdAt
+      }))
+    ];
+
+    // Sort activities by priority first, then by creation date (most recent first) using quickSort
+    const sortedActivities = quickSort(activities, (a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority; // Lower number = higher priority
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    // Extract messages for marquee (limit to 15 for more alerts)
+    const messages = sortedActivities.slice(0, 15).map(activity => activity.message);
+
+    // If no recent activities, provide default messages
+    if (messages.length === 0) {
+      messages.push(
+        'Welcome to Khatu Pay Admin Dashboard',
+        'No recent activities to display',
+        'Check back later for updates'
+      );
+    }
+
+    ok(res, messages);
+  } catch (e) {
+    next(e);
+  }
+});
 
 export default router;
