@@ -65,8 +65,19 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Connect to Database
 connectDB().catch(err => {
-  console.error('Failed to connect to database:', err);
+  console.error('❌ Failed to connect to database:', err);
   process.exit(1);
+});
+
+// 🔥 STATUS ROUTE FOR HOSTINGER — CHECK IF BACKEND RUNNING
+app.get('/res', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Backend is running successfully ✔",
+    environment: process.env.NODE_ENV || "development",
+    time: new Date().toLocaleString(),
+    uptime: process.uptime() + " seconds"
+  });
 });
 
 // API Routes
@@ -84,7 +95,7 @@ app.use('/api/bills', billRoutes);
 app.use('/api/kyc', kycRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/employee/auth', employeeAuthRoutes);
-app.use('/api/employees', employeeRoutes); // Single employee route
+app.use('/api/employees', employeeRoutes);
 app.use('/api/repayments', repayments);
 app.use('/api/notifications', notifications);
 app.use('/api/withdrawals', withdrawalRoutes);
@@ -108,16 +119,21 @@ app.use('/api/operators', operatorsRoutes);
 app.use('/api/bbps', bbpsRoutes);
 app.use('/api/status', statusRoutes);
 
-// Base route (should be last)
+// Base route
 app.use('/api', baseRoutes);
 
-// Error handling middleware
+// Error handlers
 app.use(notFound);
 app.use(errorHandler);
 
 // Start server
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`✅ Server running on http://localhost:${PORT}`);
-  console.log(`📁 Uploads directory: ${path.join(__dirname, 'uploads')}`);
+  console.log(`\n🚀 Backend Server Started`);
+  console.log(`🌐 URL: http://localhost:${PORT}`);
+  console.log(`🗄️  MongoDB: Connected`);
+  console.log(`📁 Uploads: ${path.join(__dirname, 'uploads')}`);
+  console.log(`🔍 Health Check: /res`);
+  console.log(`⏱️  Started: ${new Date().toLocaleString()}`);
+  console.log(`---------------------------------------------\n`);
 });
