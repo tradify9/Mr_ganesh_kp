@@ -102,8 +102,30 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 })();
 
 /* =======================
+   ROOT ENDPOINT
+======================= */
+app.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Khatu Pay Backend API',
+    version: '2.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
+
+/* =======================
    HEALTH CHECK (IMPORTANT)
 ======================= */
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Backend is running successfully ✅',
+    environment: process.env.NODE_ENV || 'production',
+    uptime: `${process.uptime().toFixed(2)} seconds`,
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get('/res', (req, res) => {
   res.status(200).json({
     success: true,
@@ -175,7 +197,8 @@ app.listen(PORT, '0.0.0.0', () => {
 🚀 Backend Server Started
 🌐 Port: ${PORT}
 📁 Uploads: /uploads
-🔍 Health Check: /res
+🔍 Health Check: /health, /res
+🏠 Root: /
 ⏱️  Time: ${new Date().toLocaleString()}
 ----------------------------------
 `);
