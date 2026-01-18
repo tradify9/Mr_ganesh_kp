@@ -61,8 +61,7 @@ const app = express();
    BASIC SAFETY CHECK
 ======================= */
 if (!process.env.PORT) {
-  console.error("❌ PORT not defined in environment variables");
-  process.exit(1);
+  console.warn("⚠️ PORT not defined in environment variables, using default 3000");
 }
 
 /* =======================
@@ -194,9 +193,9 @@ app.use(errorHandler);
    SERVER START
    (503 FIXED PART)
 ======================= */
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
   console.log(`
 🚀 Backend Server Started
 🌐 Port: ${PORT}
