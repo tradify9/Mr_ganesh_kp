@@ -5,10 +5,14 @@ import cors from 'cors';
 import morgan from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+// DB
 import { connectDB } from './config/db.js';
+
+// Middlewares
 import { notFound, errorHandler } from './middlewares/errorHandler.js';
 
-// Import routes
+// Routes
 import authRoutes from './routes/auth.js';
 import baseRoutes from './routes/index.js';
 import userRoutes from './routes/users.js';
@@ -49,38 +53,70 @@ import bbpsRoutes from './routes/bbps.js';
 import statusRoutes from './routes/status.js';
 
 dotenv.config();
+
 const app = express();
 
-// Middleware
-app.use(helmet());
-app.use(cors());
+/* =======================
+   BASIC SAFETY CHECK
+======================= */
+if (!process.env.PORT) {
+  console.error("❌ PORT not defined in environment variables");
+  process.exit(1);
+}
+
+/* =======================
+   MIDDLEWARES
+======================= */
+app.use(helmet({
+  crossOriginResourcePolicy: false, // hosting proxy safe
+}));
+
+app.use(cors({
+  origin: '*',
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+}));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
-// Static files
+/* =======================
+   STATIC FILES
+======================= */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Connect to Database
-connectDB().catch(err => {
-  console.error('❌ Failed to connect to database:', err);
-  process.exit(1);
-});
+/* =======================
+   DATABASE CONNECT
+   ❌ NO process.exit(1)
+======================= */
+(async () => {
+  try {
+    await connectDB();
+    console.log('🗄️ MongoDB Connected');
+  } catch (error) {
+    console.error('❌ MongoDB connection failed:', error.message);
+  }
+})();
 
-// 🔥 STATUS ROUTE FOR HOSTINGER — CHECK IF BACKEND RUNNING
+/* =======================
+   HEALTH CHECK (IMPORTANT)
+======================= */
 app.get('/res', (req, res) => {
   res.status(200).json({
     success: true,
-    message: "Backend is running successfully ✔",
-    environment: process.env.NODE_ENV || "development",
-    time: new Date().toLocaleString(),
-    uptime: process.uptime() + " seconds"
+    message: 'Backend is running successfully ✅',
+    environment: process.env.NODE_ENV || 'production',
+    uptime: `${process.uptime().toFixed(2)} seconds`,
+    timestamp: new Date().toISOString()
   });
 });
 
-// API Routes
+/* =======================
+   API ROUTES
+======================= */
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/loans', loanRoutes);
@@ -112,7 +148,7 @@ app.use('/api/admin/qr', adminQR);
 app.use('/api/admin/earnings', adminEarnings);
 app.use('/api/admin/push', adminPush);
 
-// ClubAPI Routes
+// Club APIs
 app.use('/api/recharge', rechargeRoutes);
 app.use('/api/dth', dthRoutes);
 app.use('/api/operators', operatorsRoutes);
@@ -122,18 +158,25 @@ app.use('/api/status', statusRoutes);
 // Base route
 app.use('/api', baseRoutes);
 
-// Error handlers
+/* =======================
+   ERROR HANDLERS
+======================= */
 app.use(notFound);
 app.use(errorHandler);
 
-// Start server
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`\n🚀 Backend Server Started`);
-  console.log(`🌐 URL: http://localhost:${PORT}`);
-  console.log(`🗄️  MongoDB: Connected`);
-  console.log(`📁 Uploads: ${path.join(__dirname, 'uploads')}`);
-  console.log(`🔍 Health Check: /res`);
-  console.log(`⏱️  Started: ${new Date().toLocaleString()}`);
-  console.log(`---------------------------------------------\n`);
+/* =======================
+   SERVER START
+   (503 FIXED PART)
+======================= */
+const PORT = process.env.PORT;
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`
+🚀 Backend Server Started
+🌐 Port: ${PORT}
+📁 Uploads: /uploads
+🔍 Health Check: /res
+⏱️  Time: ${new Date().toLocaleString()}
+----------------------------------
+`);
 });
