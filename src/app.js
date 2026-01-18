@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 // DB
+import mongoose from 'mongoose';
 import { connectDB } from './config/db.js';
 
 // Middlewares
@@ -117,10 +118,13 @@ app.get('/', (req, res) => {
    HEALTH CHECK (IMPORTANT)
 ======================= */
 app.get('/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Backend is running successfully ✅',
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  const statusCode = dbStatus === 'connected' ? 200 : 503;
+  res.status(statusCode).json({
+    success: dbStatus === 'connected',
+    message: dbStatus === 'connected' ? 'Backend is running successfully ✅' : 'Database not connected',
     environment: process.env.NODE_ENV || 'production',
+    database: dbStatus,
     uptime: `${process.uptime().toFixed(2)} seconds`,
     timestamp: new Date().toISOString()
   });
