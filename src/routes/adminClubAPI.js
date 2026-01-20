@@ -1,12 +1,12 @@
 import express from 'express';
 import ClubAPITransaction from '../models/ClubAPITransaction.js';
-import { requireAdminAuth } from '../middlewares/adminAuth.js';
+import { requireAdmin } from '../middlewares/adminAuth.js';
 import { ok, fail } from '../utils/response.js';
 
 const router = express.Router();
 
 // Get all ClubAPI transactions with pagination and filters
-router.get('/transactions', requireAdminAuth, async (req, res) => {
+router.get('/transactions', requireAdmin, async (req, res) => {
   try {
     const {
       page = 1,
@@ -64,7 +64,7 @@ router.get('/transactions', requireAdminAuth, async (req, res) => {
 });
 
 // Get transaction details by ID
-router.get('/transactions/:id', requireAdminAuth, async (req, res) => {
+router.get('/transactions/:id', requireAdmin, async (req, res) => {
   try {
     const transaction = await ClubAPITransaction.findById(req.params.id)
       .populate('userId', 'name email phone');
@@ -81,7 +81,7 @@ router.get('/transactions/:id', requireAdminAuth, async (req, res) => {
 });
 
 // Update transaction status
-router.put('/transactions/:id/status', requireAdminAuth, async (req, res) => {
+router.put('/transactions/:id/status', requireAdmin, async (req, res) => {
   try {
     const { status, notes } = req.body;
 
@@ -111,7 +111,7 @@ router.put('/transactions/:id/status', requireAdminAuth, async (req, res) => {
 });
 
 // Get transaction statistics
-router.get('/stats', requireAdminAuth, async (req, res) => {
+router.get('/stats', requireAdmin, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
@@ -170,7 +170,7 @@ router.get('/stats', requireAdminAuth, async (req, res) => {
 });
 
 // Get recent transactions for dashboard
-router.get('/recent', requireAdminAuth, async (req, res) => {
+router.get('/recent', requireAdmin, async (req, res) => {
   try {
     const transactions = await ClubAPITransaction.find()
       .populate('userId', 'name email phone')

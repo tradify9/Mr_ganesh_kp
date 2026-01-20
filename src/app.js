@@ -45,6 +45,7 @@ import adminVirtualAccounts from './routes/adminVirtualAccounts.js';
 import adminPayouts from './routes/adminPayouts.js';
 import adminQR from './routes/adminQR.js';
 import adminEarnings from './routes/adminEarnings.js';
+import adminClubAPI from './routes/adminClubAPI.js';
 
 // ClubAPI routes
 import rechargeRoutes from './routes/recharge.js';
@@ -171,6 +172,7 @@ app.use('/api/admin/virtual-accounts', adminVirtualAccounts);
 app.use('/api/admin/payouts', adminPayouts);
 app.use('/api/admin/qr', adminQR);
 app.use('/api/admin/earnings', adminEarnings);
+app.use('/api/admin/clubapi', adminClubAPI);
 app.use('/api/admin/push', adminPush);
 
 // Club APIs
@@ -196,7 +198,7 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`
+  console.log (`
 🚀 Backend Server Started
 🌐 Port: ${PORT}
 📁 Uploads: /uploads

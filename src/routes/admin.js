@@ -6,13 +6,16 @@ import { requireRole } from '../middlewares/role.js';
 import User from '../models/User.js';
 import Loan from '../models/Loan.js';
 import Payment from '../models/Payment.js';
+import Bill from '../models/Bill.js';
 import AuditLog from '../models/AuditLog.js';
 import Notification from '../models/Notification.js';
 import AdminNotificationHistory from '../models/AdminNotificationHistory.js';
 import Settings from '../models/Settings.js';
+import Settlement from '../models/Settlement.js';
 import { ok, fail } from '../utils/response.js';
 import { sendFCMToToken } from '../services/fcm.js';  // ✅ New import
 import { quickSort } from '../utils/dsa.js';
+import { getRazorpay } from '../services/razorpay.js';
 
 const router = Router();
 
@@ -206,6 +209,8 @@ router.put('/change-password', async (req, res, next) => {
     const admin = await User.findById(req.user.uid);
     if (!admin) return fail(res, 'NOT_FOUND', 'Admin not found', 404);
 
+    if (!admin.passwordHash) return fail(res, 'INVALID_CREDENTIALS', 'Invalid credentials', 401);
+
     // Use bcryptjs directly like in auth.js
     const isValid = await bcrypt.compare(oldPassword, admin.passwordHash);
     if (!isValid) return fail(res, 'INVALID_PASSWORD', 'Old password is incorrect', 400);
@@ -368,6 +373,77 @@ router.get('/payments', async (req, res, next) => {
     if (req.query.status) q.status = req.query.status;
     const rows = await Payment.find(q).sort({ createdAt: -1 }).limit(1000);
     ok(res, rows);
+  } catch (e) { next(e); }
+});
+
+/* ---------------- ADMIN PAYMENT ORDER (Razorpay) ---------------- */
+router.post('/payments/razorpay/order', async (req, res, next) => {
+  try {
+    const { amount, currency = 'INR', loanId = null, billId = null, installmentNo = null, isFullPayment = false, notes = {}, payeeVPA = null, payeeName = null, payeeNote = null } =
+      await Joi.object({
+        amount: Joi.number().min(1).required(),
+        currency: Joi.string().default('INR'),
+        loanId: Joi.string().allow(null, '').default(null),
+        billId: Joi.string().allow(null, '').default(null),
+        installmentNo: Joi.number().integer().allow(null).default(null),
+        isFullPayment: Joi.boolean().default(false),
+        notes: Joi.object().default({}),
+        payeeVPA: Joi.string().allow(null, '').default(null),
+        payeeName: Joi.string().allow(null, '').default(null),
+        payeeNote: Joi.string().allow(null, '').default(null)
+      }).validateAsync(req.body);
+
+    // Get user from loan if loanId provided
+    let userId = null;
+    if (loanId) {
+      const loan = await Loan.findById(loanId);
+      if (!loan) return fail(res, 'LOAN_NOT_FOUND', 'Loan not found', 404);
+      userId = loan.userId;
+    } else if (billId) {
+      // For bills, we might need to get user from bill
+      // Assuming bill has userId field
+      const bill = await Bill.findById(billId);
+      if (!bill) return fail(res, 'BILL_NOT_FOUND', 'Bill not found', 404);
+      userId = bill.userId;
+    } else {
+      return fail(res, 'MISSING_REFERENCE', 'Either loanId or billId must be provided', 400);
+    }
+
+    const rz = getRazorpay();
+    const receipt = `KP-ADMIN-${Date.now()}`;
+    const order = await rz.orders.create({
+      amount: Math.round(amount * 100),
+      currency,
+      receipt,
+      notes: { ...notes, initiatedBy: 'admin', adminId: req.user.uid }
+    });
+
+    const type = isFullPayment ? 'FULL_REPAYMENT' : (loanId ? 'REPAYMENT' : (billId ? 'BILL' : (payeeVPA ? 'P2P' : 'OTHER')));
+    const payment = await Payment.create({
+      userId,
+      loanId,
+      billId,
+      installmentNo,
+      type,
+      amount,
+      method: 'RAZORPAY',
+      reference: order.id,
+      status: 'PENDING',
+      gateway: { provider: 'razorpay', orderId: order.id },
+      payeeDetails: payeeVPA ? { vpa: payeeVPA, name: payeeName, note: payeeNote } : undefined,
+      initiatedBy: 'admin',
+      adminId: req.user.uid
+    });
+
+    await AuditLog.create({
+      actorId: req.user.uid,
+      action: 'CREATE_PAYMENT_ORDER',
+      entityType: 'Payment',
+      entityId: payment._id.toString(),
+      meta: { amount, loanId, billId, installmentNo, orderId: order.id },
+    });
+
+    ok(res, { order, paymentId: payment._id, key_id: process.env.RAZORPAY_KEY_ID }, 'Order created');
   } catch (e) { next(e); }
 });
 

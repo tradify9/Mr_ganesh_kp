@@ -118,6 +118,8 @@ router.post('/login', async (req, res, next) => {
     const user = await User.findOne(email ? { email: email.toLowerCase() } : { mobile });
     if (!user) return fail(res, 'INVALID_CREDENTIALS', 'Invalid credentials', 401);
 
+    if (!user.passwordHash) return fail(res, 'INVALID_CREDENTIALS', 'Invalid credentials', 401);
+
     // 🧠 Important: use passwordHash, not password
     const okPwd = await bcrypt.compare(password, user.passwordHash);
     if (!okPwd) return fail(res, 'INVALID_CREDENTIALS', 'Invalid credentials', 401);
